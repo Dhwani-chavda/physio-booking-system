@@ -1,5 +1,5 @@
 import java.io.File;
-import java.util.Scanner;
+import java.util.*;
 
 public class Report {
 
@@ -7,59 +7,74 @@ public class Report {
     private static final String patientFile = "Patient.txt";
     private static final String physiotherapistFile = "Physiotherapist.txt";
 
-    public static void printAppointmentReport(Scanner sc) {
-        System.out.print("Enter Appointment ID to generate report: ");
-        String appointmentId = sc.nextLine().trim();
+    public static void generateWeeklyAppointmentReport() {
+        Map<String, String> physioNames = loadNames(physiotherapistFile);
+        Map<String, String> patientNames = loadNames(patientFile);
+
+        Map<String, List<String[]>> appointmentsByPhysio = new HashMap<>();
+        Map<String, Integer> attendedCount = new HashMap<>();
 
         try {
             File file = new File(appointmentFile);
             if (!file.exists()) {
-                System.out.println("Appointment file not found.");
+                System.out.println("No appointments to display.");
                 return;
             }
 
             Scanner reader = new Scanner(file);
-            boolean found = false;
 
             while (reader.hasNextLine()) {
                 String line = reader.nextLine().trim();
-                if (line.contains("AppointmentID=" + appointmentId)) {
-                    found = true;
+                String physioId = extractValue(line, "PhysiotherapistID");
+                String physioName = physioNames.getOrDefault(physioId, "Unknown");
 
-                    // Extract fields
-                    String patientId = extractValue(line, "PatientID");
-                    String treatment = extractValue(line, "Treatment");
-                    String physiotherapistId = extractValue(line, "PhysiotherapistID");
-                    String schedule = extractSchedule(line);
-                    String status = extractValue(line, "Status");
+                String patientId = extractValue(line, "PatientID");
+                String patientName = patientNames.getOrDefault(patientId, "Unknown");
 
-                    String patientName = getNameById(patientFile, patientId);
-                    String physioName = getNameById(physiotherapistFile, physiotherapistId);
+                String treatment = extractValue(line, "Treatment");
+                String status = extractValue(line, "Status");
+                String schedule = extractSchedule(line);
 
-                    // Print formatted report
-                    System.out.println("\n===================== APPOINTMENT REPORT =====================");
-                    System.out.println("Appointment ID     : " + appointmentId);
-                    System.out.println("Patient Name       : " + patientName);
-                    System.out.println("Treatment          : " + treatment);
-                    System.out.println("Physiotherapist    : " + physioName);
-                    System.out.println("Schedule           : " + schedule);
-                    System.out.println("Status             : " + status);
-                    System.out.println("==============================================================\n");
-                    break;
+                String[] appointmentDetails = {
+                        patientName, treatment, schedule, status
+                };
+
+                appointmentsByPhysio.putIfAbsent(physioName, new ArrayList<>());
+                appointmentsByPhysio.get(physioName).add(appointmentDetails);
+
+                if (status.equalsIgnoreCase("Attended")) {
+                    attendedCount.put(physioName, attendedCount.getOrDefault(physioName, 0) + 1);
                 }
             }
 
             reader.close();
-            if (!found) {
-                System.out.println("No appointment found with ID: " + appointmentId);
+
+            System.out.println("\n===================== 4-WEEK APPOINTMENT REPORT =====================");
+            for (String physio : appointmentsByPhysio.keySet()) {
+                System.out.println("\nPhysiotherapist: " + physio);
+                System.out.println("------------------------------------------------------------");
+                for (String[] appt : appointmentsByPhysio.get(physio)) {
+                    System.out.println("Patient Name       : " + appt[0]);
+                    System.out.println("Treatment          : " + appt[1]);
+                    System.out.println("Schedule           : " + appt[2]);
+                    System.out.println("Status             : " + appt[3]);
+                    System.out.println("------------------------------------------------------------");
+                }
             }
+
+            System.out.println("\n================ PHYSIOTHERAPISTS BY ATTENDED COUNT ================");
+            attendedCount.entrySet().stream()
+                    .sorted((a, b) -> b.getValue() - a.getValue())
+                    .forEach(entry -> System.out.println(entry.getKey() + " - Attended: " + entry.getValue()));
+            System.out.println("=====================================================================\n");
 
         } catch (Exception e) {
             System.out.println("Error generating report: " + e.getMessage());
         }
     }
 
-    // Helper method
+
+    // Reusable methods
     private static String extractValue(String line, String key) {
         int start = line.indexOf(key + "=");
         if (start == -1) return "";
@@ -70,52 +85,51 @@ public class Report {
         return line.substring(start, end).trim();
     }
 
-    private static String getNameById(String filename, String id) {
+    private static Map<String, String> loadNames(String fileName) {
+        Map<String, String> nameMap = new HashMap<>();
         try {
-            File file = new File(filename);
-            if (!file.exists()) return "";
+            File file = new File(fileName);
+            if (!file.exists()) return nameMap;
 
             Scanner reader = new Scanner(file);
             while (reader.hasNextLine()) {
-                String line = reader.nextLine();
-                if (line.contains("ID=" + id)) {
-                    return extractValue(line, "Name");
-                }
+                String line = reader.nextLine().trim();
+                String id = extractValue(line, "ID");
+                String name = extractValue(line, "Name");
+                nameMap.put(id, name);
             }
             reader.close();
         } catch (Exception e) {
-            return "";
+            // Ignore and return whatever is loaded
         }
-        return "";
+        return nameMap;
     }
 
     private static String extractSchedule(String line) {
-        String scheduleContent = "";
         try {
             int scheduleStart = line.indexOf("Schedule=");
-
             if (scheduleStart == -1) return "";
 
             String sub = line.substring(scheduleStart);
             int openBrace = sub.indexOf("{");
             int closeBrace = sub.indexOf("}");
 
+            String content;
             if (openBrace != -1 && closeBrace != -1 && closeBrace > openBrace) {
-                scheduleContent = sub.substring(openBrace + 1, closeBrace);
+                content = sub.substring(openBrace + 1, closeBrace);
             } else {
                 int end = sub.indexOf(", Status=");
-                scheduleContent = sub.substring(9, end);
+                content = sub.substring(9, end);
             }
 
-            String day = extractValue(scheduleContent, "Day");
-            String date = extractValue(scheduleContent, "Date");
-            String time = extractValue(scheduleContent, "Time");
+            String day = extractValue(content, "Day");
+            String date = extractValue(content, "Date");
+            String time = extractValue(content, "Time");
 
             return day + ", " + date + ", " + time;
 
         } catch (Exception e) {
-            return "";
+            return "N/A";
         }
     }
-
 }
